@@ -1,6 +1,6 @@
 #!/bin/sh
 # GoogleCalc.sh for irssi/whatever v1
-# (c) Matti Hiljanen <matti@hiljanen.com>
+# (c) 2005 Matti Hiljanen <matti@hiljanen.com>
 
 # say 
 #   /alias gcalc exec - <path to googlecalc.sh> "$0-" 
