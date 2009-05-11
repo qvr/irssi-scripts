@@ -15,7 +15,7 @@ $VERSION="1.0";
     license => "Public Domain",
 );
  
-my $count;
+my $count,$pcount;
 my $forked;
 my %lastread;
  
@@ -112,6 +112,7 @@ sub read_pipe {
     Irssi::input_remove($target->{tag});
     $forked = 0;
 
+    $pcount = $count;
     $count = shift @rows;
     
     if (Irssi::settings_get_bool('gmail_debug')) { 
@@ -148,7 +149,11 @@ sub mail {
     if($count == 0) {
         $item->default_handler($get_size_only, "", undef, 1);
     } elsif ($count > 0) {
-        $item->default_handler($get_size_only, "{sb Mail: $count}", undef, 1);
+        if ($count > $pcount) {
+            $item->default_handler($get_size_only, "{sb Mail: {nick $count}}", undef, 1);
+        } else {
+            $item->default_handler($get_size_only, "{sb Mail: $count}", undef, 1);
+        }
     } elsif ($count == -2) {
         $item->default_handler($get_size_only, "{sb Mail: {nick not configured}}", undef, 1);
     } else {
