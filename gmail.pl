@@ -38,7 +38,14 @@ sub count {
                 my $t = $_->title;
                 $a =~ s/\t/ /g; $t =~ s/\t/ /g;
                 my $str = "$a\t$t";
-                Encode::from_to($str, "utf8", "iso8859-1");
+                my $encoding;
+                eval {
+                    require I18N::Langinfo;
+                    $encoding = lc(I18N::Langinfo::langinfo(I18N::Langinfo::CODESET()));
+                };
+                if ($encoding && $encoding !~ /^utf-?8$/i) {
+                    Encode::from_to($str, "utf8", $encoding);
+                }
                 push @r, $str;
             }
             return @r;
@@ -174,8 +181,9 @@ Irssi::theme_register(
         '{line_start}%_new%_ %BG%RM%Ya%Bi%Gl%N from %c$0%N with subject %c$1%N'
         ]);
 
-Irssi::print("GMail.pl loaded. Remember to set your username and password (gmail_user and gmail_pass) " 
-        . "and add \"mail\" statusbar item to your statusbar.");
+Irssi::print("GMail.pl loaded.");
+Irssi::print("Remember to set your username and password (gmail_user and gmail_pass) " 
+        . "and add \"mail\" statusbar item to your statusbar.") unless (Irssi::settings_get_str('gmail_user'));
  
 update();
 Irssi::timeout_add(60*1000, "update", undef);
