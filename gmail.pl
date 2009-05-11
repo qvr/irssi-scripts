@@ -2,6 +2,7 @@ use Irssi;
 use Irssi::TextUI;
 use strict;
 use XML::Atom::Client;
+use POSIX;
 use vars qw($VERSION %IRSSI);
  
 $VERSION="1.0";
