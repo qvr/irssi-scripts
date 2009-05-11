@@ -166,7 +166,7 @@ Irssi::settings_add_bool('gmail', 'gmail_show_message', 0);
 Irssi::theme_register(
         [
         'new_gmail_crap',
-        '{line_start}%_new%_ %BG%RM%Ya%Bi%Gl%N %_From:%_ $0 with %_Subject:%_ $1'
+        '{line_start}%_new%_ %BG%RM%Ya%Bi%Gl%N from %c$0%N with subject %c$1%N'
         ]);
 
 Irssi::print("GMail.pl loaded. Remember to set your username and password (gmail_user and gmail_pass) " 
