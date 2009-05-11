@@ -1,4 +1,5 @@
 use Irssi;
+use Irssi::TextUI;
 use strict;
 use XML::Atom::Client;
 use vars qw($VERSION %IRSSI);
