@@ -109,7 +109,7 @@ sub read_pipe {
     $count = $rows[0];
     
     if (Irssi::settings_get_bool('gmail_debug')) { 
-        Irssi::print("updated, status is $status, count is $count");
+        Irssi::print("Gmail feed updated, status is '$status', count is $count");
     }
 
     refresh();
