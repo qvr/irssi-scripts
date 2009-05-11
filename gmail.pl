@@ -36,8 +36,9 @@ sub count {
             foreach ($feed->entries) {
                 my $a = $_->author->name;
                 my $t = $_->title;
-                $a =~ s/\t/ /g; $t =~ s/\t/ /g;
-                my $str = "$a\t$t";
+                my $s = $_->summary;
+                $a =~ s/\t/ /g; $t =~ s/\t/ /g; $s =~ s/\t/ /g;
+                my $str = "$a\t$t\t$s";
                 my $encoding;
                 eval {
                     require I18N::Langinfo;
@@ -100,8 +101,9 @@ sub update {
 sub awp {
     if (Irssi::settings_get_bool('gmail_show_message') 
             && Irssi::active_server() && !Irssi::active_server()->{usermode_away}) {
-        my ($a,$t) = split("\t",shift,2);
-        Irssi::active_win->printformat(MSGLEVEL_CLIENTCRAP, 'new_gmail_crap', $a,$t);
+        my ($a,$t,$s) = split("\t",shift,3);
+        Irssi::active_win->printformat(MSGLEVEL_CLIENTCRAP, 'new_gmail_crap', $a,$t,
+                Irssi::settings_get_bool('gmail_show_summary') ? $s : undef);
     }
 }
 
@@ -172,13 +174,14 @@ Irssi::statusbar_item_register("mail", undef, "mail");
 Irssi::settings_add_str('gmail', 'gmail_user', '');
 Irssi::settings_add_str('gmail', 'gmail_pass', '');
 Irssi::settings_add_str('gmail', 'gmail_feed', 'https://mail.google.com/mail/feed/atom');
+Irssi::settings_add_bool('gmail', 'gmail_show_message', 1);
+Irssi::settings_add_bool('gmail', 'gmail_show_summary', 1);
 Irssi::settings_add_bool('gmail', 'gmail_debug', 0);
-Irssi::settings_add_bool('gmail', 'gmail_show_message', 0);
 
 Irssi::theme_register(
         [
         'new_gmail_crap',
-        '{line_start}%_new%_ %BG%RM%Ya%Bi%Gl%N from %c$0%N with subject %c$1%N'
+        '{line_start}%_new%_ %BG%RM%Ya%Bi%Gl%N from %c$0%N with subject %c$1%N %K$2%N'
         ]);
 
 Irssi::print("GMail.pl loaded.");
