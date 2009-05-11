@@ -72,7 +72,7 @@ sub update {
             my $err = $@;
             chomp $err;
             $err =~ s/\n/-/g;
-            print $wh "0\nERR $err\n";
+            print $wh "-3\nERR $err\n";
         } else {
             print $wh $ret . "\n";
             if ($ret >= 0) {
@@ -80,7 +80,7 @@ sub update {
             } elsif ($ret == -1) {
                 print $wh "ERR getting feed failed\n";
             } elsif ($ret == -2) {
-                print $wh "ERR l/p not set, update skipped\n";
+                print $wh "ERR user,password or feed url not set, update skipped\n";
             } else {
                 print $wh "ERR unknown error\n";
             }
