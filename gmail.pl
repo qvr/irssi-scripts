@@ -74,7 +74,7 @@ sub read_pipe {
     my $target = shift;
     my $rh = $target->{fh};
 
-    my $rows = ();
+    my @rows = ();
     while (<$rh>) {
         chomp;
         push @rows, $_;
