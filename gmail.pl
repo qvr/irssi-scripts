@@ -15,7 +15,7 @@ $VERSION="1.0";
     license => "Public Domain",
 );
  
-my $count,$pcount;
+my ($count,$pcount);
 my $forked;
 my %lastread;
  
