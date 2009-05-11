@@ -3,6 +3,7 @@ use Irssi::TextUI;
 use strict;
 use XML::Atom::Client;
 use POSIX;
+use Encode;
 use vars qw($VERSION %IRSSI);
  
 $VERSION="1.0";
@@ -16,6 +17,7 @@ $VERSION="1.0";
  
 my $count;
 my $forked;
+my %lastread;
  
 sub count {
     my $api=XML::Atom::Client->new;
@@ -29,8 +31,17 @@ sub count {
     my $feed=$api->getFeed($f);
  
     if($feed) {
-        if($feed->as_xml =~ /<fullcount>(.*)<\/fullcount>/g) {
-            return int($1);
+        if($feed->as_xml =~ /<fullcount>(.*?)<\/fullcount>/g) {
+            my @r = int($1);
+            foreach ($feed->entries) {
+                my $a = $_->author->name;
+                my $t = $_->title;
+                $a =~ s/\t/ /g; $t =~ s/\t/ /g;
+                my $str = "$a\t$t";
+                Encode::from_to($str, "utf8", "iso8859-1");
+                push @r, $str;
+            }
+            return @r;
         } else {
             return -1;
         }
@@ -63,31 +74,27 @@ sub update {
         my $target = {fh => $$rh, tag => undef};
         $target->{tag} = Irssi::input_add(fileno($rh), INPUT_READ, \&read_pipe, $target);
     } else {
-        my $ret = -3;
+        my @ret;
         eval {
             local $SIG{'__WARN__'} = sub { die "@_" };
-            $ret = count();
+            @ret = count();
         };
         if ($@) {
-            my $err = $@;
-            chomp $err;
-            $err =~ s/\n/-/g;
-            print $wh "-3\nERR $err\n";
+            print $wh "-3\n$@\n";
         } else {
-            print $wh $ret . "\n";
-            if ($ret >= 0) {
-                print $wh "OK\n";
-            } elsif ($ret == -1) {
-                print $wh "ERR getting feed failed\n";
-            } elsif ($ret == -2) {
-                print $wh "ERR user,password or feed url not set, update skipped\n";
-            } else {
-                print $wh "ERR unknown error\n";
-            }
+            print ($wh join "\n", @ret);
         }
         close $rh;
         close $wh;
         POSIX::_exit(1);
+    }
+}
+
+sub awp {
+    if (Irssi::settings_get_bool('gmail_show_message') 
+            && Irssi::active_server() && !Irssi::active_server()->{usermode_away}) {
+        my ($a,$t) = split("\t",shift,2);
+        Irssi::active_win->printformat(MSGLEVEL_CLIENTCRAP, 'new_gmail_crap', $a,$t);
     }
 }
 
@@ -105,13 +112,28 @@ sub read_pipe {
     Irssi::input_remove($target->{tag});
     $forked = 0;
 
-    my $status = pop @rows;
-
-    $count = $rows[0];
+    $count = shift @rows;
     
     if (Irssi::settings_get_bool('gmail_debug')) { 
-        Irssi::print("Gmail feed updated, status is '$status', count is $count");
+        Irssi::print("Gmail.pl update() finished, status is $count");
     }
+
+    my $i = 0;
+    my %nlr;
+    my @tonotify;
+    if ($count > 0) {
+        foreach (@rows) {
+            push @tonotify, @rows[$i] unless $lastread{@rows[$i]};
+            $nlr{@rows[$i]} = 1;
+            $i++;
+        }
+
+        foreach (@tonotify) {
+            awp $_ unless (@tonotify) >= 5;
+        }
+    }
+
+    %lastread = %nlr;
 
     refresh();
 }
@@ -139,10 +161,16 @@ Irssi::settings_add_str('gmail', 'gmail_user', '');
 Irssi::settings_add_str('gmail', 'gmail_pass', '');
 Irssi::settings_add_str('gmail', 'gmail_feed', 'https://mail.google.com/mail/feed/atom');
 Irssi::settings_add_bool('gmail', 'gmail_debug', 0);
+Irssi::settings_add_bool('gmail', 'gmail_show_message', 0);
+
+Irssi::theme_register(
+        [
+        'new_gmail_crap',
+        '{line_start}new %BG%RM%Ya%Bi%Gl%N %_From:%_ $0 with %_Subject:%_ $1'
+        ]);
 
 Irssi::print("GMail.pl loaded. Remember to set your username and password (gmail_user and gmail_pass) " 
-        . "and add \"mail\" statusbar item to your statusbar. "
-        . "You can enable debugging with /toggle gmail_debug");
+        . "and add \"mail\" statusbar item to your statusbar.");
  
 update();
 Irssi::timeout_add(60*1000, "update", undef);
