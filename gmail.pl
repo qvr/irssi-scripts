@@ -74,14 +74,15 @@ sub update {
             $err =~ s/\n/-/g;
             print $wh "0\nERR $err\n";
         } else {
+            print $wh $ret . "\n";
             if ($ret >= 0) {
-                print $wh $ret . "\nOK\n";
+                print $wh "OK\n";
             } elsif ($ret == -1) {
-                print $wh "0\nERR getting feed failed\n";
+                print $wh "ERR getting feed failed\n";
             } elsif ($ret == -2) {
-                print $wh "0\nERR l/p not set, update skipped\n";
+                print $wh "ERR l/p not set, update skipped\n";
             } else {
-                print $wh "0\nERR unknown error\n";
+                print $wh "ERR unknown error\n";
             }
         }
         close $rh;
@@ -124,8 +125,12 @@ sub mail {
  
     if($count == 0) {
         $item->default_handler($get_size_only, "", undef, 1);
-    } else {
+    } elsif ($count > 0) {
         $item->default_handler($get_size_only, "{sb Mail: $count}", undef, 1);
+    } elsif ($count == -2) {
+        $item->default_handler($get_size_only, "{sb Mail: {nick not configured}}", undef, 1);
+    } else {
+        $item->default_handler($get_size_only, "{sb Mail: {nick update error}}", undef, 1);
     }
 }
  
