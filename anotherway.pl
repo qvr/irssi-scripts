@@ -8,7 +8,7 @@ use vars qw($VERSION %IRSSI);
 $VERSION = "2009051301";
 %IRSSI = (
     authors     => "Matti Hiljanen",
-    name        => "anotherway",
+    name        => "anotherway2",
     description => "Another auto away script with screen detach/attach integration",
     license     => "GPLv2, Public Domain",
     changed     => "$VERSION",
