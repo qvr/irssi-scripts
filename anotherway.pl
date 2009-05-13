@@ -7,8 +7,9 @@ use strict;
 use vars qw($VERSION %IRSSI);
 $VERSION = "2009051301";
 %IRSSI = (
-    authors     => "Matti Hiljanen",
-    name        => "anotherway2",
+    authors     => "Stefan 'tommie' Tomanek, Matti Hiljanen",
+    contact     => "stefan\@pico.ruhr.de",
+    name        => "anotherway",
     description => "Another auto away script with screen detach/attach integration",
     license     => "GPLv2, Public Domain",
     changed     => "$VERSION",
@@ -125,8 +126,8 @@ sub remove_timer {
 }
 
 Irssi::settings_add_str($IRSSI{name}, 'anotherway_reason', 'a-nother-way');
-Irssi::settings_add_int($IRSSI{name}, 'anotherway_timeout', 300);
-Irssi::settings_add_int($IRSSI{name}, 'anotherway_detached_timeout', 60);
+Irssi::settings_add_int($IRSSI{name}, 'anotherway_timeout', 600);
+Irssi::settings_add_int($IRSSI{name}, 'anotherway_detached_timeout', 120);
 Irssi::settings_add_bool($IRSSI{name}, 'anotherway_debug', 0);
 
 Irssi::signal_add($_, "reset_timer") foreach (@reset_signals);
