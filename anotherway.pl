@@ -57,7 +57,7 @@ sub screen_check {
         return;
     }
 
-    my $socket = "/tmp/uscreens/S-" . $ENV{'USER'} . "/" . $ENV{'STY'};
+    my $socket = "/var/run/screen/S-" . $ENV{'USER'} . "/" . $ENV{'STY'};
     my $cur_att = &screen_attached($socket);
 
     if ($cur_att) {
