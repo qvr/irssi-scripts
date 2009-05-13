@@ -31,7 +31,7 @@ if ($screen_ls !~ /^No Sockets found/s) {
 }
 
 sub go_away {
-    Irssi::print "%R>>%n Going away...";
+    Irssi::print "%R>>%n Going away..." if Irssi::settings_get_bool("anotherway_debug");
     &remove_timer;
     my $reason = Irssi::settings_get_str("anotherway_reason");
     my @servers = Irssi::servers();
@@ -42,7 +42,7 @@ sub go_away {
 }
 
 sub come_back {
-    Irssi::print "%R>>%n Coming back...";
+    Irssi::print "%R>>%n Coming back..." if Irssi::settings_get_bool("anotherway_debug");
     foreach (Irssi::servers()) {
         if ($_->{usermode_away}) {
             $_->command('AWAY');
