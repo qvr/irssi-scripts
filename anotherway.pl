@@ -1,12 +1,16 @@
+#
+# based on tommie's anotherway script
+# tommie's part GPLv2, my part public domain
+#
+
 use strict;
 use vars qw($VERSION %IRSSI);
 $VERSION = "2009051301";
 %IRSSI = (
-    authors     => "Stefan 'tommie' Tomanek",
-    contact     => "stefan\@pico.ruhr.de",
+    authors     => "Matti Hiljanen",
     name        => "anotherway",
-    description => "Another auto away script",
-    license     => "GPLv2",
+    description => "Another auto away script with screen detach/attach integration",
+    license     => "GPLv2, Public Domain",
     changed     => "$VERSION",
 );
 use Irssi;
@@ -25,13 +29,10 @@ if ($screen_ls !~ /^No Sockets found/s) {
     $screen_ls =~ /^No Sockets found in ([^\n]+)\.\n.+$/s;
     $screen_socket_path = $1;
 }
-Irssi::print "Screen socket path: $screen_socket_path";
-    
 
 sub go_away {
     Irssi::print "%R>>%n Going away...";
-    Irssi::timeout_remove($timer);
-    $timer = undef;
+    &remove_timer;
     my $reason = Irssi::settings_get_str("anotherway_reason");
     my @servers = Irssi::servers();
     return unless @servers;
@@ -48,13 +49,15 @@ sub come_back {
             last;
         }
     }
-    &register_timer;
+    Irssi::signal_remove($_ , "come_back") foreach (@exit_signals);
+    Irssi::signal_remove($_ , "reset_timer") foreach (@reset_signals);
     Irssi::signal_add($_, "reset_timer") foreach (@reset_signals);
 }
 
 sub reset_timer {
     if (!$timer) {
-        Irssi::print "no timer set, checking if we're already away";
+        Irssi::print "no timer set, checking if we're already away" 
+            if Irssi::settings_get_bool("anotherway_debug");
         my $away = 0;
         foreach (Irssi::servers()) {
            if ($_->{usermode_away}) {
@@ -63,43 +66,28 @@ sub reset_timer {
            }
         }
 
-        if (!$away) {
-            Irssi::print "not away, setting timer";
-            &register_timer;
-        }
+        &register_timer unless $away;
         return;
     }
-    Irssi::print "%R>>%n RESET";
-    Irssi::timeout_remove($timer);
-    my $timeout;
-    if ($attached == 0) {
-        $timeout = Irssi::settings_get_int("anotherway_detached_timeout");
-        Irssi::print("timeout is in detached mode");
-    } else {
-        $timeout = Irssi::settings_get_int("anotherway_timeout");
-        Irssi::print("timeout is in attached mode");
-    }
-    $timer = Irssi::timeout_add($timeout*1000, "go_away", undef);
+    Irssi::print "%R>>%n TIMER RESET" if Irssi::settings_get_bool("anotherway_debug");
+    &remove_timer;
+    &register_timer;
 }
 
 sub screen_check {
-    if (!defined($ENV{STY})) {
-        Irssi::print ("Not running under screen");
+    if (!defined($ENV{STY}) || !$screen_socket_path) {
+        Irssi::print ("Not running under screen") if Irssi::settings_get_bool("anotherway_debug");
         $attached = -1;
         return;
     }
 
     my $socket = $screen_socket_path . "/" . $ENV{'STY'};
+    return unless ( -e $socket );
+
     my $cur_att = &screen_attached($socket);
 
-    if ($cur_att) {
-        Irssi::print ("Under screen and currently attached");
-    } else {
-        Irssi::print ("Under screen and currently detached");
-    }
-
     if ($cur_att != $attached) {
-        Irssi::print ("screen status change");
+        Irssi::print ("screen status change") if Irssi::settings_get_bool("anotherway_debug");
         $attached = $cur_att;
         &reset_timer();
     }
@@ -116,16 +104,33 @@ sub screen_attached {
 }
 
 sub register_timer {
-    Irssi::print "registering away timer";
-    $timer = Irssi::timeout_add(Irssi::settings_get_int("anotherway_timeout")*1000, "go_away", undef);
+    if ($timer) {
+        Irssi::print "%R>>%n ".$IRSSI{name}." tried to register double timer";
+        return;
+    }
+    my $timeout;
+    if ($attached == 0) {
+        $timeout = Irssi::settings_get_int("anotherway_detached_timeout");
+    } else {
+        $timeout = Irssi::settings_get_int("anotherway_timeout");
+    }
+    Irssi::print "registering away timer, timeout $timeout" if Irssi::settings_get_bool("anotherway_debug");
+    $timer = Irssi::timeout_add_once($timeout*1000, "go_away", undef);
+}
+
+sub remove_timer {
+    Irssi::print "timer removed" if Irssi::settings_get_bool("anotherway_debug");
+    Irssi::timeout_remove($timer);
+    $timer = undef;
 }
 
 Irssi::settings_add_str($IRSSI{name}, 'anotherway_reason', 'a-nother-way');
 Irssi::settings_add_int($IRSSI{name}, 'anotherway_timeout', 300);
 Irssi::settings_add_int($IRSSI{name}, 'anotherway_detached_timeout', 60);
+Irssi::settings_add_bool($IRSSI{name}, 'anotherway_debug', 0);
 
-&register_timer;
 Irssi::signal_add($_, "reset_timer") foreach (@reset_signals);
-Irssi::timeout_add(10*1000, "screen_check", undef);
+Irssi::timeout_add(15*1000, "screen_check", undef);
 
 print CLIENTCRAP '%B>>%n '.$IRSSI{name}.' '.$VERSION.' loaded';
+Irssi::print "No screen socket path found, detach detection will not work" unless $screen_socket_path;
