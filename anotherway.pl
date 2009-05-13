@@ -43,8 +43,10 @@ sub reset_timer {
     my $timeout;
     if ($attached == 0) {
         $timeout = Irssi::settings_get_int("anotherway_detached_timeout");
+        Irssi::print("timeout is in detached mode");
     } else {
         $timeout = Irssi::settings_get_int("anotherway_timeout");
+        Irssi::print("timeout is in attached mode");
     }
     $timer = Irssi::timeout_add($timeout*1000, "go_away", undef);
     Irssi::signal_add($_, "reset_timer") foreach (@reset_signals);
