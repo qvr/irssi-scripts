@@ -46,7 +46,6 @@ sub come_back {
     foreach (Irssi::servers()) {
         if ($_->{usermode_away}) {
             $_->command('AWAY');
-            last;
         }
     }
     Irssi::signal_remove($_ , "come_back") foreach (@exit_signals);
