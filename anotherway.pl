@@ -1,6 +1,5 @@
 #
 # based on tommie's anotherway script
-# tommie's part GPLv2, my part public domain
 #
 
 use strict;
@@ -11,7 +10,7 @@ $VERSION = "2009051301";
     contact     => "stefan\@pico.ruhr.de",
     name        => "anotherway",
     description => "Another auto away script with screen detach/attach integration",
-    license     => "GPLv2, Public Domain",
+    license     => "GPLv2",
     changed     => "$VERSION",
 );
 use Irssi;
