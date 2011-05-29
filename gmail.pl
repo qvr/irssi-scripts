@@ -60,7 +60,7 @@ sub count {
  
 sub update {
     if ($forked) {
-        Irssi::print("gmail update failed, already forked");
+        Irssi::print("GMail.pl update skipped, previous update not yet finished");
         return;
     }
     
@@ -121,7 +121,7 @@ sub read_pipe {
     Irssi::input_remove($target->{tag});
     $forked = 0;
 
-    $pcount = $count;
+    $pcount = $count unless ($count < 0);
     $count = shift @rows;
     
     if (Irssi::settings_get_bool('gmail_debug')) { 
@@ -138,12 +138,16 @@ sub read_pipe {
             $i++;
         }
 
-        foreach (@tonotify) {
-            awp $_ unless (@tonotify) >= 5;
+        if (@tonotify < 5) {
+          foreach (@tonotify) {
+            awp $_;
+          }
         }
     }
 
-    %lastread = %nlr;
+    if ($count >= 0) {
+      %lastread = %nlr;
+    }
 
     refresh();
 }
