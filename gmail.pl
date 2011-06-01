@@ -78,16 +78,16 @@ use XML::Atom::Feed;
 use POSIX;
 use Encode;
 use vars qw($VERSION %IRSSI);
- 
+
 $VERSION="1.0";
- 
+
 %IRSSI=(
     authors => "Matti Hiljanen",
     name => "Gmail Count",
     description => "List the number of unread messages in your Gmail Inbox",
     license => "Public Domain",
 );
- 
+
 our ($count,$pcount);
 our ($forked,$authed);
 our %lastread;
@@ -102,11 +102,11 @@ our %tokens = (
   request_token_secret => undef,
   request_token_timestamp => 0,
 );
- 
+
 sub count {
     my $xml = shift;
     my $feed = XML::Atom::Feed->new(\$xml);
- 
+
     if($feed) {
         if($feed->as_xml =~ /<fullcount>(.*?)<\/fullcount>/g) {
             my @r = int($1);
@@ -134,7 +134,7 @@ sub count {
       return -1;
     }
 }
- 
+
 sub oauth_worker {
   my $action = shift || return 0;
   my $params = shift;
@@ -197,7 +197,13 @@ sub oauth_worker {
             tokens => $params->{tokens},
         );
 
-        my $response = $oauth->make_restricted_request("https://mail.google.com/mail/feed/atom/", 'POST');
+        my $feed = "https://mail.google.com/mail/feed/atom/";
+
+        if (Irssi::settings_get_bool("gmail_use_priority_inbox")) {
+          $feed .= "important";
+        }
+
+        my $response = $oauth->make_restricted_request($feed, 'POST');
 
         if ($response) {
           @ret = count($response->content);
@@ -216,7 +222,7 @@ sub oauth_worker {
     };
     if ($@) {
       print $wh "-3\n" . join(' ', split('\n', $@)) . "\n"; # crash
-    } 
+    }
     close $rh;
     close $wh;
     POSIX::_exit(1);
@@ -224,7 +230,7 @@ sub oauth_worker {
 }
 
 sub awp {
-    if (Irssi::settings_get_bool('gmail_show_message') 
+    if (Irssi::settings_get_bool('gmail_show_message')
             && Irssi::active_server() && !Irssi::active_server()->{usermode_away}) {
         my ($a,$t,$s) = split("\t",shift,3);
         Irssi::active_win->printformat(MSGLEVEL_CLIENTCRAP, 'new_gmail_crap', $a,$t,
@@ -246,7 +252,7 @@ sub read_pipe {
   Irssi::input_remove($target->{tag});
   $forked = 0;
 
-  if (Irssi::settings_get_bool('gmail_debug')) { 
+  if (Irssi::settings_get_bool('gmail_debug')) {
     Irssi::print($IRSSI{name} . ": oauth_worker() finished, task: " . $target->{action} . ", status: " . $rows[0]);
   }
 
@@ -314,14 +320,14 @@ sub read_pipe {
   }
   refresh();
 }
- 
+
 sub refresh {
     Irssi::statusbar_items_redraw("mail");
 }
- 
+
 sub mail {
     my ($item, $get_size_only)=@_;
- 
+
     if($count == 0) {
         $item->default_handler($get_size_only, "", undef, 1);
     } elsif ($count > 0) {
@@ -491,6 +497,6 @@ Irssi::theme_register(
 
 Irssi::print("GMail.pl loaded.");
 cmd_auth(1);
- 
+
 update();
 Irssi::timeout_add(60*1000, "update", undef);
