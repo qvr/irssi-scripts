@@ -79,13 +79,13 @@ use POSIX;
 use Encode;
 use vars qw($VERSION %IRSSI);
 
-$VERSION="1.0";
+$VERSION="2.0";
 
 %IRSSI=(
     authors => "Matti Hiljanen",
-    name => "Gmail Count",
+    name => "Irssi Gmail Count",
     description => "List the number of unread messages in your Gmail Inbox",
-    license => "Public Domain",
+    license => "GPLv2",
 );
 
 our ($count,$pcount);
