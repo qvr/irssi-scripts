@@ -1,3 +1,59 @@
+{
+  package Net::GmailOAuth;
+  use strict;
+
+  use base qw(Net::OAuth::Simple);
+
+  sub new {
+    my $class  = shift;
+    my %params = @_;
+
+    return $class->SUPER::new(
+        %params,
+    );
+  }
+
+  sub _make_request {
+    my $self    = shift;
+    my $class   = shift;
+    my $url     = shift;
+    my $method  = uc(shift);
+    my @extra   = @_;
+
+    my $uri   = URI->new($url);
+    my %query = $uri->query_form;
+    $uri->query_form({});
+
+    my $request = $class->new(
+        consumer_key     => $self->consumer_key,
+        consumer_secret  => $self->consumer_secret,
+        request_url      => $uri,
+        request_method   => $method,
+        signature_method => $self->signature_method,
+        protocol_version => $self->oauth_1_0a ? Net::OAuth::PROTOCOL_VERSION_1_0A : Net::OAuth::PROTOCOL_VERSION_1_0,
+        timestamp        => time,
+        nonce            => $self->_nonce,
+        extra_params     => \%query,
+        @extra,
+        );
+    $request->sign;
+    return $self->_error("Couldn't verify request! Check OAuth parameters.")
+      unless $request->verify;
+
+    my $req = HTTP::Request->new($method => $uri);
+    $req->header('Content-type' => 'application/atom+xml');
+    $req->header('Authorization' => $request->to_authorization_header);
+    $req->header('Content_Length' => '0'); # Google bug
+    my $response = $self->{browser}->request($req);
+    return $self->_error("$method on $request failed: ".$response->status_line)
+          unless ( $response->is_success );
+
+    return $response;
+  }
+
+  1;
+}
+
 use Irssi;
 use Irssi::TextUI;
 use strict;
@@ -33,7 +89,7 @@ our %tokens = (
  
 sub count {
     my $xml = shift;
-    my $feed = XML::Atom::Feed->new($xml);
+    my $feed = XML::Atom::Feed->new(\$xml);
  
     if($feed) {
         if($feed->as_xml =~ /<fullcount>(.*?)<\/fullcount>/g) {
@@ -128,12 +184,15 @@ sub oauth_worker {
           print $wh "0\n" . $oauth->last_error . "\n";
         }
       } elsif ($action eq "update") {
-        my $oauth = Net::OAuth::Simple->new(
+        my $oauth = Net::GmailOAuth->new(
             tokens => $params->{tokens},
             return_undef_on_error => 1,
             );
 
         my $response = $oauth->make_restricted_request("https://mail.google.com/mail/feed/atom/", 'POST');
+
+        # 502 = temp error
+        # 401 = wrong auth
 
         if ($response) {
           @ret = count($response->content);
@@ -144,7 +203,7 @@ sub oauth_worker {
       }
     };
     if ($@) {
-      print $wh "-3\n$@\n";
+      print $wh "-3\n" . join(' ', split('\n', $@)) . "\n";
     } 
     close $rh;
     close $wh;
