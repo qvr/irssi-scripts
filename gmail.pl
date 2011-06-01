@@ -259,8 +259,6 @@ sub read_pipe {
     my $ret = $rows[0];
     my $output = $rows[1];
 
-    Irssi::print("output: $output");
-
     if ($target->{action} eq "request") {
       if ($ret) {
         $output =~ /^(\S+) (\S+) (\S+)$/;
