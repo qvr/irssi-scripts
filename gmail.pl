@@ -1,7 +1,8 @@
 use Irssi;
 use Irssi::TextUI;
 use strict;
-use XML::Atom::Client;
+use XML::Atom::Feed;
+use Net::OAuth::Simple;
 use POSIX;
 use Encode;
 use vars qw($VERSION %IRSSI);
@@ -15,20 +16,24 @@ $VERSION="1.0";
     license => "Public Domain",
 );
  
-my ($count,$pcount);
-my $forked;
-my %lastread;
+our ($count,$pcount);
+our ($forked,$authed);
+our %lastread;
+
+our $oauth_store = Irssi::get_irssi_dir . "/gmail.oauth";
+our %tokens = (
+  consumer_key => "anonymous",
+  consumer_secret => "anonymous",
+  access_token => undef,
+  access_token_secret => undef,
+  request_token => undef,
+  request_token_secret => undef,
+  request_token_timestamp => 0,
+);
  
 sub count {
-    my $api=XML::Atom::Client->new;
-    my ($l,$p,$f) = (Irssi::settings_get_str('gmail_user'), Irssi::settings_get_str('gmail_pass'), 
-            Irssi::settings_get_str('gmail_feed'));
-    return -2 if ($l eq "" || $p eq "");
- 
-    $api->username($l);
-    $api->password($p);
- 
-    my $feed=$api->getFeed($f);
+    my $xml = shift;
+    my $feed = XML::Atom::Feed->new($xml);
  
     if($feed) {
         if($feed->as_xml =~ /<fullcount>(.*?)<\/fullcount>/g) {
@@ -58,44 +63,93 @@ sub count {
     }
 }
  
-sub update {
-    if ($forked) {
-        Irssi::print("GMail.pl update skipped, previous update not yet finished");
-        return;
-    }
-    
-    my ($rh,$wh);
-    pipe $rh, $wh;
-    $forked = 1;
-    my $pid = fork();
+sub oauth_worker {
+  my $action = shift || return 0;
+  my $params = shift;
+  if ($forked) {
+    Irssi::print("GMail.pl: oauth_worker still busy, $action skipped");
+    return;
+  }
 
-    unless (defined($pid)) {
-        Irssi::print("Can't fork for gmail update() - abort");
-        close $rh;
-        close $wh;
-        return;
-    }
+  my ($rh,$wh);
+  pipe $rh, $wh;
+  $forked = 1;
+  my $pid = fork();
 
-    if ($pid > 0) {
-        close $wh;
-        Irssi::pidwait_add($pid);
-        my $target = {fh => $$rh, tag => undef};
-        $target->{tag} = Irssi::input_add(fileno($rh), INPUT_READ, \&read_pipe, $target);
-    } else {
-        my @ret;
-        eval {
-            local $SIG{'__WARN__'} = sub { die "@_" };
-            @ret = count();
-        };
-        if ($@) {
-            print $wh "-3\n$@\n";
+  unless (defined($pid)) {
+    Irssi::print("GMail.pl: Can't fork for oauth_worker() - abort");
+    close $rh;
+    close $wh;
+    return;
+  }
+
+  if ($pid > 0) {
+    close $wh;
+    Irssi::pidwait_add($pid);
+    my $target = {fh => $$rh, tag => undef, action => $action};
+    $target->{tag} = Irssi::input_add(fileno($rh), INPUT_READ, \&read_pipe, $target);
+  } else {
+    my @ret;
+    eval {
+      local $SIG{'__WARN__'} = sub { die "@_" };
+      if ($action eq "request") {
+        my $oauth = Net::OAuth::Simple->new(
+            tokens => $params->{tokens},
+            return_undef_on_error => 1,
+            urls   => {
+            request_token_url => "https://www.google.com/accounts/OAuthGetRequestToken?scope=https://mail.google.com/mail/feed/atom/&xoauth_displayname=" . $IRSSI{name},
+            authorization_url => "https://www.google.com/accounts/OAuthAuthorizeToken",
+            },
+            );
+
+        $oauth->callback("oob");
+        my $auth_url = $oauth->get_authorization_url;
+        my $request_token = $oauth->request_token;
+        my $request_token_secret = $oauth->request_token_secret;
+
+        if ($auth_url) {
+          print $wh "1\n$auth_url $request_token $request_token_secret\n";
         } else {
-            print ($wh join "\n", @ret);
+          print $wh "0\n" . $oauth->last_error . "\n";
         }
-        close $rh;
-        close $wh;
-        POSIX::_exit(1);
-    }
+      } elsif ($action eq "access") {
+        my $oauth = Net::OAuth::Simple->new(
+            tokens => $params->{tokens},
+            return_undef_on_error => 1,
+            urls   => {
+            access_token_url  => "https://www.google.com/accounts/OAuthGetAccessToken",
+            },
+            );
+
+        my ($token,$secret) = $oauth->request_access_token(verifier => $params->{verifier});
+        if ($oauth->authorized) {
+          print $wh "1\n$token $secret\n";
+        } else {
+          print $wh "0\n" . $oauth->last_error . "\n";
+        }
+      } elsif ($action eq "update") {
+        my $oauth = Net::OAuth::Simple->new(
+            tokens => $params->{tokens},
+            return_undef_on_error => 1,
+            );
+
+        my $response = $oauth->make_restricted_request("https://mail.google.com/mail/feed/atom/", 'POST');
+
+        if ($response) {
+          @ret = count($response->content);
+          print ($wh join "\n", @ret);
+        } else {
+          print $wh "-2\n" . $oauth->last_error . "\n";
+        }
+      }
+    };
+    if ($@) {
+      print $wh "-3\n$@\n";
+    } 
+    close $rh;
+    close $wh;
+    POSIX::_exit(1);
+  }
 }
 
 sub awp {
@@ -108,48 +162,80 @@ sub awp {
 }
 
 sub read_pipe {
-    my $target = shift;
-    my $rh = $target->{fh};
+  my $target = shift;
+  my $rh = $target->{fh};
 
-    my @rows = ();
-    while (<$rh>) {
-        chomp;
-        push @rows, $_;
+  my @rows = ();
+  while (<$rh>) {
+    chomp;
+    push @rows, $_;
+  }
+
+  close($target->{fh});
+  Irssi::input_remove($target->{tag});
+  $forked = 0;
+
+  if (Irssi::settings_get_bool('gmail_debug')) { 
+    Irssi::print("Gmail.pl oauth_worker() finished, task: " . $target->{action} . ", status: " . $rows[0]);
+  }
+
+  if ($rows[0] < 0) {
+    Irssi::print("Gmail.pl oauth_worker() crashed, output: " . $rows[1]);
+    return 0;
+  }
+
+  if ($target->{action} eq "request" or $target->{action} eq "access") {
+    my $ret = $rows[0];
+    my $output = $rows[1];
+
+    Irssi::print("output: $output");
+
+    if ($target->{action} eq "request") {
+      if ($ret) {
+        $output =~ /^(\S+) (\S+) (\S+)$/;
+        Irssi::print("Authorize " . $IRSSI{name} . " at the following url: " . escape($1) .
+            " and then enter the verification code with /gmail verify <code>");
+        $tokens{request_token} = $2;
+        $tokens{request_token_secret} = $3;
+        $tokens{request_token_timestamp} = time;
+      }
+    } elsif ($target->{action} eq "access") {
+      if ($ret) {
+        $output =~ /^(\S+) (\S+)$/;
+        store_oauth($1,$2);
+        Irssi::print("OK, authorization successful");
+        update();
+      } else {
+        Irssi::print("Invalid verification code or it has expired, try again.");
+      }
     }
-
-    close($target->{fh});
-    Irssi::input_remove($target->{tag});
-    $forked = 0;
-
+  } else {
     $pcount = $count unless ($count < 0);
     $count = shift @rows;
-    
-    if (Irssi::settings_get_bool('gmail_debug')) { 
-        Irssi::print("Gmail.pl update() finished, status is $count");
-    }
+
 
     my $i = 0;
     my %nlr;
     my @tonotify;
     if ($count > 0) {
-        foreach (@rows) {
-            push @tonotify, @rows[$i] unless $lastread{@rows[$i]};
-            $nlr{@rows[$i]} = 1;
-            $i++;
-        }
+      foreach (@rows) {
+        push @tonotify, @rows[$i] unless $lastread{@rows[$i]};
+        $nlr{@rows[$i]} = 1;
+        $i++;
+      }
 
-        if (@tonotify < 5) {
-          foreach (@tonotify) {
-            awp $_;
-          }
+      if (@tonotify < 5) {
+        foreach (@tonotify) {
+          awp $_;
         }
+      }
     }
 
     if ($count >= 0) {
       %lastread = %nlr;
     }
-
-    refresh();
+  }
+  refresh();
 }
  
 sub refresh {
@@ -168,19 +254,153 @@ sub mail {
             $item->default_handler($get_size_only, "{sb Mail: $count}", undef, 1);
         }
     } elsif ($count == -2) {
-        $item->default_handler($get_size_only, "{sb Mail: {nick not configured}}", undef, 1);
+        $item->default_handler($get_size_only, "{sb Mail: {nick not authenticated}}", undef, 1);
     } else {
         $item->default_handler($get_size_only, "{sb Mail: {nick update error}}", undef, 1);
     }
 }
- 
+
+sub escape {
+  my ($text) = @_;
+  $text =~ s/%/%%/g;
+  return $text;
+}
+
+sub read_oauth {
+  my ($token,$secret);
+  if (-e $oauth_store) {
+    open ( OAUTH, $oauth_store ) or return 0;
+    while (<OAUTH>) {
+      chomp;
+      if ($_ =~ /^token (\S+)$/) { $token = $1; };
+      if ($_ =~ /^secret (\S+)$/) { $secret = $1; };
+      last if ($token && $secret);
+    }
+    close OAUTH;
+  }
+  if ($token && $secret) {
+    $tokens{access_token} = $token;
+    $tokens{access_token_secret} = $secret;
+    $authed = 1;
+    return 1;
+  }
+  return 0;
+}
+
+sub store_oauth {
+  my $token = shift || return 0;
+  my $secret = shift || return 0;
+
+  open ( OAUTH, ">$oauth_store.new" ) or return 0;
+  print OAUTH "token $token\n";
+  print OAUTH "secret $secret\n";
+  close OAUTH;
+
+  rename "$oauth_store.new", $oauth_store;
+
+  $tokens{access_token} = $token;
+  $tokens{access_token_secret} = $secret;
+  $authed = 1;
+
+  return 1;
+}
+
+sub clear_auth {
+  $tokens{access_token} = "";
+  $tokens{access_token_secret} = "";
+  $authed = 0;
+  rename $oauth_store, "$oauth_store.old";
+  return 1;
+}
+
+sub cmd_status {
+  my ($data, $server, $item) = @_;
+  if ($data =~ m/^[(verify)|(auth)|(help)]/i ) {
+    Irssi::command_runsub ('gmail', $data, $server, $item);
+  } else {
+    Irssi::print($IRSSI{name});
+    if ($authed) {
+      Irssi::print("  Currently authenticated.");
+    } else {
+      Irssi::print("  NOT currently authenticated, use /gmail auth to begin.");
+    }
+  }
+}
+
+sub cmd_deauth {
+  if ($authed) {
+    clear_auth();
+    Irssi::print($IRSSI{name} . ": OK, access tokens removed.");
+  }
+}
+
+sub cmd_verify {
+  my $verifier = shift;
+  my ($server,$win) = @_;
+  unless (length $tokens{request_token} && length $tokens{request_token_secret}) {
+    Irssi::print("No pending OAuth request. Try /gmail auth first.");
+    return 0;
+  }
+
+  if ((time - $tokens{request_token_timestamp}) > 600) {
+    Irssi::print("Pending OAuth request over 10 minutes old and has expired. Try /gmail auth first.");
+    return 0;
+  }
+  if ( oauth_worker("access", {
+        tokens => { %tokens },
+        verifier => $verifier,
+        }) ) {
+    return 1;
+  }
+  Irssi::print("cmd_verify failed!");
+  return 0;
+}
+
+sub cmd_auth {
+  my $autoauth = shift;
+
+  if (read_oauth()) {
+    Irssi::print($IRSSI{name} . ": Loaded stored access tokens");
+  } elsif ($autoauth) {
+    Irssi::print($IRSSI{name} . ": No stored access tokens found, use /gmail auth to begin\n"
+        . "and remember to add \"mail\" statusbar item to your statusbar.");
+    return 0;
+  } else {
+    do_req_oauth();
+  }
+}
+
+sub do_req_oauth {
+  if (oauth_worker("request", {
+    tokens => { %tokens },
+  }) ) {
+    return 1;
+  }
+  Irssi::print("do_req_oauth failed!");
+  return 0;
+}
+
+sub update {
+  return 1 unless ($authed);
+  if (oauth_worker("update", {
+      tokens => { %tokens },
+  }) ) {
+    return 1;
+  }
+  Irssi::print("update() failed immediately!");
+  return 0;
+}
+
 Irssi::statusbar_item_register("mail", undef, "mail");
-Irssi::settings_add_str('gmail', 'gmail_user', '');
-Irssi::settings_add_str('gmail', 'gmail_pass', '');
-Irssi::settings_add_str('gmail', 'gmail_feed', 'https://mail.google.com/mail/feed/atom');
 Irssi::settings_add_bool('gmail', 'gmail_show_message', 1);
 Irssi::settings_add_bool('gmail', 'gmail_show_summary', 1);
+Irssi::settings_add_bool('gmail', 'gmail_use_priority_inbox', 0);
 Irssi::settings_add_bool('gmail', 'gmail_debug', 0);
+
+Irssi::command_bind('gmail deauth','cmd_deauth');
+Irssi::command_bind('gmail auth','cmd_auth');
+Irssi::command_bind('gmail verify','cmd_verify');
+Irssi::command_bind('gmail','cmd_status');
 
 Irssi::theme_register(
         [
@@ -189,8 +409,7 @@ Irssi::theme_register(
         ]);
 
 Irssi::print("GMail.pl loaded.");
-Irssi::print("Remember to set your username and password (gmail_user and gmail_pass) " 
-        . "and add \"mail\" statusbar item to your statusbar.") unless (Irssi::settings_get_str('gmail_user'));
+cmd_auth(1);
  
 update();
 Irssi::timeout_add(60*1000, "update", undef);
