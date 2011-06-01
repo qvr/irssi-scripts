@@ -9,8 +9,14 @@
     my %params = @_;
 
     return $class->SUPER::new(
+        urls   => {
+          request_token_url => "https://www.google.com/accounts/OAuthGetRequestToken?scope=https://mail.google.com/mail/feed/atom/&xoauth_displayname=" . $params{name},
+          authorization_url => "https://www.google.com/accounts/OAuthAuthorizeToken",
+          access_token_url  => "https://www.google.com/accounts/OAuthGetAccessToken",
+        },
+        return_undef_on_error => 1,
         %params,
-    );
+        );
   }
 
   sub _make_request {
@@ -40,13 +46,24 @@
     return $self->_error("Couldn't verify request! Check OAuth parameters.")
       unless $request->verify;
 
-    my $req = HTTP::Request->new($method => $uri);
-    $req->header('Content-type' => 'application/atom+xml');
-    $req->header('Authorization' => $request->to_authorization_header);
-    $req->header('Content_Length' => '0'); # Google bug
+    my $req;
+    if ('GET' eq $method || 'PUT' eq $method) {
+      my @args    = ();
+      my $req_url = $url;
+      my $params  = $request->to_hash;
+      $req_url = URI->new($url);
+      $req_url->query_form(%$params);
+
+      $req      = HTTP::Request->new( $method => $req_url, @args);
+    } else {
+      $req = HTTP::Request->new($method => $uri);
+      $req->header('Content-type' => 'application/atom+xml');
+      $req->header('Authorization' => $request->to_authorization_header);
+      $req->header('Content_Length' => '0'); # Google bug
+    }
     my $response = $self->{browser}->request($req);
     return $self->_error("$method on $request failed: ".$response->status_line)
-          unless ( $response->is_success );
+      unless ( $response->is_success );
 
     return $response;
   }
@@ -58,7 +75,6 @@ use Irssi;
 use Irssi::TextUI;
 use strict;
 use XML::Atom::Feed;
-use Net::OAuth::Simple;
 use POSIX;
 use Encode;
 use vars qw($VERSION %IRSSI);
@@ -149,14 +165,10 @@ sub oauth_worker {
     eval {
       local $SIG{'__WARN__'} = sub { die "@_" };
       if ($action eq "request") {
-        my $oauth = Net::OAuth::Simple->new(
+        my $oauth = Net::GmailOAuth->new(
+            name => $IRSSI{name},
             tokens => $params->{tokens},
-            return_undef_on_error => 1,
-            urls   => {
-            request_token_url => "https://www.google.com/accounts/OAuthGetRequestToken?scope=https://mail.google.com/mail/feed/atom/&xoauth_displayname=" . $IRSSI{name},
-            authorization_url => "https://www.google.com/accounts/OAuthAuthorizeToken",
-            },
-            );
+        );
 
         $oauth->callback("oob");
         my $auth_url = $oauth->get_authorization_url;
@@ -169,13 +181,10 @@ sub oauth_worker {
           print $wh "0\n" . $oauth->last_error . "\n";
         }
       } elsif ($action eq "access") {
-        my $oauth = Net::OAuth::Simple->new(
+        my $oauth = Net::GmailOAuth->new(
+            name => $IRSSI{name},
             tokens => $params->{tokens},
-            return_undef_on_error => 1,
-            urls   => {
-            access_token_url  => "https://www.google.com/accounts/OAuthGetAccessToken",
-            },
-            );
+        );
 
         my ($token,$secret) = $oauth->request_access_token(verifier => $params->{verifier});
         if ($oauth->authorized) {
@@ -186,24 +195,27 @@ sub oauth_worker {
       } elsif ($action eq "update") {
         my $oauth = Net::GmailOAuth->new(
             tokens => $params->{tokens},
-            return_undef_on_error => 1,
-            );
+        );
 
         my $response = $oauth->make_restricted_request("https://mail.google.com/mail/feed/atom/", 'POST');
-
-        # 502 = temp error
-        # 401 = wrong auth
 
         if ($response) {
           @ret = count($response->content);
           print ($wh join "\n", @ret);
         } else {
-          print $wh "-2\n" . $oauth->last_error . "\n";
+          my $err = $oauth->last_error;
+          my $ret = -3;
+          if ($err =~ /failed: 502/) { # temporary error, try again
+            $ret = -1;
+          } elsif ($err =~ /failed: 401/) { # auth failed, revoked auth token?
+            $ret = -2;
+          }
+          print $wh "$ret\n$err\n";
         }
       }
     };
     if ($@) {
-      print $wh "-3\n" . join(' ', split('\n', $@)) . "\n";
+      print $wh "-3\n" . join(' ', split('\n', $@)) . "\n"; # crash
     } 
     close $rh;
     close $wh;
@@ -235,11 +247,11 @@ sub read_pipe {
   $forked = 0;
 
   if (Irssi::settings_get_bool('gmail_debug')) { 
-    Irssi::print("Gmail.pl oauth_worker() finished, task: " . $target->{action} . ", status: " . $rows[0]);
+    Irssi::print($IRSSI{name} . ": oauth_worker() finished, task: " . $target->{action} . ", status: " . $rows[0]);
   }
 
-  if ($rows[0] < 0) {
-    Irssi::print("Gmail.pl oauth_worker() crashed, output: " . $rows[1]);
+  if ($rows[0] == -3) {
+    Irssi::print($IRSSI{name} . ": oauth_worker() crashed, output: " . $rows[1]);
     return 0;
   }
 
@@ -271,25 +283,33 @@ sub read_pipe {
   } else {
     $pcount = $count unless ($count < 0);
     $count = shift @rows;
-
-
-    my $i = 0;
     my %nlr;
-    my @tonotify;
-    if ($count > 0) {
-      foreach (@rows) {
-        push @tonotify, @rows[$i] unless $lastread{@rows[$i]};
-        $nlr{@rows[$i]} = 1;
-        $i++;
-      }
 
-      if (@tonotify < 5) {
-        foreach (@tonotify) {
-          awp $_;
+    if ($count == -2) {
+      Irssi::print($IRSSI{name} . ": Unauthorized, access tokens revoked? Clearing authentication status.");
+      Irssi::print("Error was: " . $rows[0]);
+      clear_auth();
+    } elsif ($count == -1) {
+      if (Irssi::settings_get_bool('gmail_debug')) {
+        Irssi::print($IRSSI{name} . ": update had temporary error: " . $rows[0]);
+      }
+    } else {
+      my $i = 0;
+      my @tonotify;
+      if ($count > 0) {
+        foreach (@rows) {
+          push @tonotify, @rows[$i] unless $lastread{@rows[$i]};
+          $nlr{@rows[$i]} = 1;
+          $i++;
+        }
+
+        if (@tonotify < 5) {
+          foreach (@tonotify) {
+            awp $_;
+          }
         }
       }
     }
-
     if ($count >= 0) {
       %lastread = %nlr;
     }
@@ -315,7 +335,7 @@ sub mail {
     } elsif ($count == -2) {
         $item->default_handler($get_size_only, "{sb Mail: {nick not authenticated}}", undef, 1);
     } else {
-        $item->default_handler($get_size_only, "{sb Mail: {nick update error}}", undef, 1);
+        $item->default_handler($get_size_only, "{sb Mail: $pcount %R(!)%n}", undef, 1);
     }
 }
 
@@ -359,14 +379,18 @@ sub store_oauth {
 
   $tokens{access_token} = $token;
   $tokens{access_token_secret} = $secret;
+  $tokens{request_token} = undef;
+  $tokens{request_token_secret} = undef;
   $authed = 1;
 
   return 1;
 }
 
 sub clear_auth {
-  $tokens{access_token} = "";
-  $tokens{access_token_secret} = "";
+  $tokens{access_token} = undef;
+  $tokens{access_token_secret} = undef;
+  $tokens{request_token} = undef;
+  $tokens{request_token_secret} = undef;
   $authed = 0;
   rename $oauth_store, "$oauth_store.old";
   return 1;
@@ -374,7 +398,7 @@ sub clear_auth {
 
 sub cmd_status {
   my ($data, $server, $item) = @_;
-  if ($data =~ m/^[(verify)|(auth)|(help)]/i ) {
+  if ($data =~ m/^[(verify)|((de)?auth)|(help)]/i ) {
     Irssi::command_runsub ('gmail', $data, $server, $item);
   } else {
     Irssi::print($IRSSI{name});
@@ -411,7 +435,7 @@ sub cmd_verify {
         }) ) {
     return 1;
   }
-  Irssi::print("cmd_verify failed!");
+  Irssi::print($IRSSI{name} . ": cmd_verify failed!");
   return 0;
 }
 
@@ -435,7 +459,7 @@ sub do_req_oauth {
   }) ) {
     return 1;
   }
-  Irssi::print("do_req_oauth failed!");
+  Irssi::print($IRSSI{name} . ": do_req_oauth failed!");
   return 0;
 }
 
@@ -446,7 +470,7 @@ sub update {
   }) ) {
     return 1;
   }
-  Irssi::print("update() failed immediately!");
+  Irssi::print($IRSSI{name} . ": update() failed immediately!");
   return 0;
 }
 
