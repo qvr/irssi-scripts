@@ -8,9 +8,12 @@
     my $class  = shift;
     my %params = @_;
 
+    my $displayname = "";
+    $displayname = "&xoauth_displayname=" . $params{name} if ($params{name} && length($params{name}) > 0);
+
     return $class->SUPER::new(
         urls   => {
-          request_token_url => "https://www.google.com/accounts/OAuthGetRequestToken?scope=https://mail.google.com/mail/feed/atom/&xoauth_displayname=" . $params{name},
+          request_token_url => "https://www.google.com/accounts/OAuthGetRequestToken?scope=https://mail.google.com/mail/feed/atom/$displayname",
           authorization_url => "https://www.google.com/accounts/OAuthAuthorizeToken",
           access_token_url  => "https://www.google.com/accounts/OAuthGetAccessToken",
         },
