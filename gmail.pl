@@ -142,7 +142,7 @@ sub oauth_worker {
   my $action = shift || return 0;
   my $params = shift;
   if ($forked) {
-    Irssi::print("GMail.pl: oauth_worker still busy, $action skipped");
+    Irssi::print($IRSSI{name} . ": oauth_worker still busy, $action skipped");
     return;
   }
 
@@ -152,7 +152,7 @@ sub oauth_worker {
   my $pid = fork();
 
   unless (defined($pid)) {
-    Irssi::print("GMail.pl: Can't fork for oauth_worker() - abort");
+    Irssi::print($IRSSI{name} . ": Can't fork for oauth_worker() - abort");
     close $rh;
     close $wh;
     return;
@@ -281,10 +281,10 @@ sub read_pipe {
       if ($ret) {
         $output =~ /^(\S+) (\S+)$/;
         store_oauth($1,$2);
-        Irssi::print("OK, authorization successful");
+        Irssi::print($IRSSI{name} . ": OK, authorization successful");
         update();
       } else {
-        Irssi::print("Invalid verification code or it has expired, try again.");
+        Irssi::print($IRSSI{name} . ": Invalid verification code or it has expired, try again.");
       }
     }
   } else {
@@ -428,12 +428,12 @@ sub cmd_verify {
   my $verifier = shift;
   my ($server,$win) = @_;
   unless (length $tokens{request_token} && length $tokens{request_token_secret}) {
-    Irssi::print("No pending OAuth request. Try /gmail auth first.");
+    Irssi::print($IRSSI{name} . ": No pending OAuth request. Try /gmail auth first.");
     return 0;
   }
 
   if ((time - $tokens{request_token_timestamp}) > 600) {
-    Irssi::print("Pending OAuth request over 10 minutes old and has expired. Try /gmail auth first.");
+    Irssi::print($IRSSI{name} . ": Pending OAuth request over 10 minutes old and has expired. Try /gmail auth first.");
     return 0;
   }
   if ( oauth_worker("access", {
