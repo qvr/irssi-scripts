@@ -498,7 +498,6 @@ Irssi::theme_register(
         '{line_start}%_new%_ %BG%RM%Ya%Bi%Gl%N from %c$0%N with subject %c$1%N %K$2%N'
         ]);
 
-Irssi::print("GMail.pl loaded.");
 cmd_auth(1);
 
 update();
