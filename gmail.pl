@@ -214,7 +214,7 @@ sub oauth_worker {
         } else {
           my $err = $oauth->last_error;
           my $ret = -3;
-          if ($err =~ /failed: 502/) { # temporary error, try again
+          if ($err =~ /failed: (502|500)/) { # temporary error, try again
             $ret = -1;
           } elsif ($err =~ /failed: 401/) { # auth failed, revoked auth token?
             $ret = -2;
