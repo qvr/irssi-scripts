@@ -202,8 +202,9 @@ sub oauth_worker {
 
         my $feed = "https://mail.google.com/mail/feed/atom/";
 
-        if (Irssi::settings_get_bool("gmail_use_priority_inbox")) {
-          $feed .= "important";
+        my $label = Irssi::settings_get_str("gmail_feed_label");
+        if ($label && length($label) > 0) {
+          $feed .= $label;
         }
 
         my $response = $oauth->make_restricted_request($feed, 'POST');
@@ -484,8 +485,8 @@ sub update {
 Irssi::statusbar_item_register("mail", undef, "mail");
 Irssi::settings_add_bool('gmail', 'gmail_show_message', 1);
 Irssi::settings_add_bool('gmail', 'gmail_show_summary', 1);
-Irssi::settings_add_bool('gmail', 'gmail_use_priority_inbox', 0);
 Irssi::settings_add_bool('gmail', 'gmail_debug', 0);
+Irssi::settings_add_str('gmail', 'gmail_feed_label', undef);
 
 Irssi::command_bind('gmail deauth','cmd_deauth');
 Irssi::command_bind('gmail auth','cmd_auth');
