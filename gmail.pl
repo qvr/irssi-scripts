@@ -93,7 +93,7 @@ $VERSION="2.0";
 
 our ($count,$pcount);
 our ($forked,$authed);
-our %lastread;
+our %mcache;
 
 our $oauth_store = Irssi::get_irssi_dir . "/gmail.oauth";
 our %tokens = (
@@ -291,7 +291,7 @@ sub read_pipe {
   } else {
     $pcount = $count unless ($count < 0);
     $count = shift @rows;
-    my %nlr;
+    my %new;
 
     if ($count == -2) {
       Irssi::print($IRSSI{name} . ": Unauthorized, access tokens revoked? Clearing authentication status.");
@@ -303,23 +303,27 @@ sub read_pipe {
       }
     } else {
       my $i = 0;
-      my @tonotify;
+
       if ($count > 0) {
         foreach (@rows) {
-          push @tonotify, @rows[$i] unless $lastread{@rows[$i]};
-          $nlr{@rows[$i]} = 1;
+          $new{@rows[$i]} = time unless $mcache{@rows[$i]};
           $i++;
         }
 
-        if (@tonotify < 5) {
-          foreach (@tonotify) {
+        if (scalar(keys %new) < 5) {
+          foreach (keys %new) {
             awp $_;
           }
         }
       }
     }
     if ($count >= 0) {
-      %lastread = %nlr;
+      my $i = 0;
+      foreach my $key (sort { $mcache{$b} <=> $mcache{$a} } (keys %mcache)) {
+        $new{$key} = $mcache{$key} unless $new{$key};
+        last if (++$i >= 100);
+      }
+      %mcache = %new;
     }
   }
   refresh();
