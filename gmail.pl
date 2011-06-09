@@ -318,7 +318,7 @@ sub read_pipe {
       }
     }
     if ($count >= 0) {
-      my $i = 0;
+      my $i = scalar(%new);
       foreach my $key (sort { $mcache{$b} <=> $mcache{$a} } (keys %mcache)) {
         $new{$key} = $mcache{$key} unless $new{$key};
         last if (++$i >= 100);
