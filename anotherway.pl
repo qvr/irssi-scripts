@@ -45,7 +45,7 @@ sub come_back {
     Irssi::print "%R>>%n Coming back..." if Irssi::settings_get_bool("anotherway_debug");
     foreach (Irssi::servers()) {
         if ($_->{usermode_away}) {
-            $_->command('AWAY');
+            $_->command('AWAY -one');
         }
     }
     Irssi::signal_remove($_ , "come_back") foreach (@exit_signals);
