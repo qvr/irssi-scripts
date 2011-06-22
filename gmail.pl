@@ -94,6 +94,10 @@ $VERSION="2.0";
 our ($count,$pcount,$ecount);
 our ($forked,$authed);
 our %mcache;
+our %lasterror = (
+  str => "none",
+  time => 0,
+);
 
 our $oauth_store = Irssi::get_irssi_dir . "/gmail.oauth";
 our %tokens = (
@@ -301,6 +305,8 @@ sub read_pipe {
       if (Irssi::settings_get_bool('gmail_debug')) {
         Irssi::print($IRSSI{name} . ": update had temporary error: " . $rows[0]);
       }
+      $lasterror{str} = $rows[0];
+      $lasterror{time} = time;
       $ecount++;
     } else {
       $ecount = 0;
@@ -423,6 +429,8 @@ sub cmd_status {
     } else {
       Irssi::print("  NOT currently authenticated, use /gmail auth to begin.");
     }
+    Irssi::print("  " . scalar(keys %mcache) . " emails in cache.");
+    Irssi::print("  Last error: " . $lasterror{str} . ", " . ($lasterror{time} ? (time - $lasterror{time}) . " seconds ago":"never") . ".");
   }
 }
 
