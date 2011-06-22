@@ -91,7 +91,7 @@ $VERSION="2.0";
     license => "GPLv2",
 );
 
-our ($count,$pcount);
+our ($count,$pcount,$ecount);
 our ($forked,$authed);
 our %mcache;
 
@@ -301,7 +301,9 @@ sub read_pipe {
       if (Irssi::settings_get_bool('gmail_debug')) {
         Irssi::print($IRSSI{name} . ": update had temporary error: " . $rows[0]);
       }
+      $ecount++;
     } else {
+      $ecount = 0;
       my $i = 0;
 
       if ($count > 0) {
@@ -347,7 +349,9 @@ sub mail {
     } elsif ($count == -2) {
         $item->default_handler($get_size_only, "{sb Mail: {nick not authenticated}}", undef, 1);
     } else {
+      if ($ecount > 2) {
         $item->default_handler($get_size_only, "{sb Mail: $pcount %R(!)%n}", undef, 1);
+      }
     }
 }
 
