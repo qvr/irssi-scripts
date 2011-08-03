@@ -82,7 +82,7 @@ use POSIX;
 use Encode;
 use vars qw($VERSION %IRSSI);
 
-$VERSION="2.1";
+$VERSION="2.2";
 
 %IRSSI=(
     authors => "Matti Hiljanen",
@@ -219,7 +219,7 @@ sub oauth_worker {
         } else {
           my $err = $oauth->last_error;
           my $ret = -3;
-          if ($err =~ /failed: (502|500)/) { # temporary error, try again
+          if ($err =~ /failed: (502|500|401)/) { # temporary error, try again
             $ret = -1;
           } elsif ($err =~ /failed: 401/) { # auth failed, revoked auth token?
             $ret = -2;
