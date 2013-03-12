@@ -1,13 +1,15 @@
 use strict; use warnings;
 
 use Irssi;
-use IPC::Open2 qw(open2);
 use POSIX;
 use Encode;
 use LWP::UserAgent;
 use LWP::Protocol::https;
 use URI;
 use URI::Escape;
+use Crypt::CBC;
+use Crypt::Rijndael;
+use MIME::Base64;
 use vars qw($VERSION %IRSSI);
 
 $VERSION = "18";
@@ -240,6 +242,7 @@ sub send_to_api {
         my $target = {fh => $$readHandle, tag => undef, type => $type};
         $target->{tag} = Irssi::input_add(fileno($readHandle), INPUT_READ, \&read_pipe, $target);
     } else {
+        close (STDIN); close (STDOUT); close (STDERR);
         eval {
             my $api_token = Irssi::settings_get_str('irssinotifier_api_token');
             my $proxy     = Irssi::settings_get_str('irssinotifier_https_proxy');
@@ -336,35 +339,17 @@ sub read_pipe {
 
 sub encrypt {
     my ($text) = @_ ? shift : $_;
-    my $password = Irssi::settings_get_str('irssinotifier_encryption_password');
 
-    chdir();
-    my $fifo = ".irssinotifier_fifo";
-    unlink $fifo; # just in case
-    POSIX::mkfifo($fifo, 0700);
+    my $cipher = Crypt::CBC->new( {
+        'key'         => Irssi::settings_get_str('irssinotifier_encryption_password'),
+        'header'      => 'salt',
+        'cipher'      => 'Rijndael',
+        'salt'        => 1,
+        'keysize'     => 128 / 8,
+      }
+    );
 
-    my $password_pid = fork();
-
-    if ($password_pid == 0) {
-        # child process
-        open (my $handle, "> $fifo"); # this line blocks until a reader (openssl) is spawned
-        print $handle $password;
-        close $handle;
-        unlink $fifo;
-        POSIX::_exit(1);
-    }
-
-    Irssi::pidwait_add($password_pid);
-
-    my $pid = open2(my $out, my $in, qw(openssl enc -aes-128-cbc -salt -base64 -A -pass), "file:$fifo");
-
-    print $in "$text ";
-    close $in;
-
-    local $/; # read full output at once
-    my $result = readline $out;
-    waitpid $pid, 0;
-    waitpid $password_pid, 0;
+    my $result = encode_base64($cipher->encrypt("$text "), "");
 
     $result =~ tr[+/][-_];
     $result =~ s/=//g;
@@ -379,12 +364,6 @@ sub are_settings_valid {
 
     if (!Irssi::settings_get_str('irssinotifier_api_token')) {
         Irssi::print("IrssiNotifier: Set API token to send notifications: /set irssinotifier_api_token [token]");
-        return 0;
-    }
-
-    `openssl version`;
-    if ($? != 0) {
-        Irssi::print("IrssiNotifier: openssl not found.");
         return 0;
     }
 
