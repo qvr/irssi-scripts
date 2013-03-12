@@ -4,6 +4,10 @@ use Irssi;
 use IPC::Open2 qw(open2);
 use POSIX;
 use Encode;
+use LWP::UserAgent;
+use LWP::Protocol::https;
+use URI;
+use URI::Escape;
 use vars qw($VERSION %IRSSI);
 
 $VERSION = "18";
@@ -244,9 +248,8 @@ sub send_to_api {
                 $ENV{https_proxy} = $proxy;
             }
 
-            my $wget_cmd = "wget --tries=2 --timeout=10 --no-check-certificate -qO- /dev/null";
+            my $browser = LWP::UserAgent->new;
             my $api_url;
-            my $data;
 
             if ($type eq 'notification') {
                 $lastMsg = Irssi::strip_codes($lastMsg);
@@ -256,18 +259,24 @@ sub send_to_api {
                 $lastNick   = encrypt($lastNick);
                 $lastTarget = encrypt($lastTarget);
 
-                $data = "--post-data=apiToken=$api_token\\&message=$lastMsg\\&channel=$lastTarget\\&nick=$lastNick\\&version=$VERSION";
-                $api_url = "https://irssinotifier.appspot.com/API/Message";
+                $api_url = URI->new("https://irssinotifier.appspot.com/API/Message");
+                $api_url->query_form( 'apiToken'  => $api_token,
+                                      'message'   => uri_escape($lastMsg),
+                                      'channel'   => uri_escape($lastTarget),
+                                      'nick'      => uri_escape($lastNick),
+                                      'version'   => $VERSION );
+
             } elsif ($type eq 'cmd') {
                 $command = encrypt($command);
-                $data    = "--post-data=apiToken=$api_token\\&command=$command";
-                $api_url = "https://irssinotifier.appspot.com/API/Command";
+                $api_url = URI->new("https://irssinotifier.appspot.com/API/Command");
+                $api_url->query_form( 'apiToken'  => $api_token,
+                                      'command'   => $command );
             }
 
-            my $result =  `$wget_cmd $data $api_url`;
-            if (($? >> 8) != 0) {
+            my $response = $browser->post($api_url);
+            if (!$response->is_success) {
                 # Something went wrong, might be network error or authorization issue. Probably no need to alert user, though.
-                print $writeHandle "0 FAIL\n";
+                print $writeHandle "0 FAIL: " . $response->status_line . "\n";
             } else {
                 print $writeHandle "1 OK\n";
             }
@@ -376,12 +385,6 @@ sub are_settings_valid {
     `openssl version`;
     if ($? != 0) {
         Irssi::print("IrssiNotifier: openssl not found.");
-        return 0;
-    }
-
-    `wget --version`;
-    if ($? != 0) {
-        Irssi::print("IrssiNotifier: wget not found.");
         return 0;
     }
 
