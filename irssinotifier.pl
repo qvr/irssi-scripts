@@ -189,11 +189,6 @@ sub screen_attached {
     return 0;
 }
 
-sub is_dangerous_string {
-    my $s = @_ ? shift : $_;
-    return $s =~ m/"/ || $s =~ m/`/ || $s =~ m/\\/;
-}
-
 sub send_notification {
     if ($forked) {
         if (scalar @delayQueue < 10) {
@@ -371,17 +366,11 @@ sub are_settings_valid {
     if (!$api_token) {
         Irssi::print("IrssiNotifier: Set API token to send notifications (check your token at https://irssinotifier.appspot.com): /set irssinotifier_api_token [token]");
         return 0;
-    } elsif (is_dangerous_string($api_token)) {
-        Irssi::print("IrssiNotifier: API token cannot contain backticks, double quotes or backslashes");
-        return 0;
     }
 
     my $encryption_password  = Irssi::settings_get_str('irssinotifier_encryption_password');
     if (!$encryption_password) {
         Irssi::print("IrssiNotifier: Set encryption password to send notifications (must be same as in the Android device): /set irssinotifier_encryption_password [password]");
-        return 0;
-    } elsif (is_dangerous_string $encryption_password ) {
-        Irssi::print("IrssiNotifier: Encryption password cannot contain backticks, double quotes or backslashes");
         return 0;
     }
 
