@@ -19,7 +19,7 @@ $VERSION = "18";
     name        => "IrssiNotifier",
     description => "Send notifications about irssi highlights to server",
     license     => "Apache License, version 2.0",
-    url         => "https://irssinotifier.appspot.com",
+    url         => "https://irssinotifier-qvr.appspot.com",
     changed     => "2013-06-02"
 );
 
@@ -257,7 +257,7 @@ sub send_to_api {
                 $lastNick   = encrypt($lastNick);
                 $lastTarget = encrypt($lastTarget);
 
-                $api_url = URI->new("https://irssinotifier.appspot.com/API/Message");
+                $api_url = URI->new("https://irssinotifier-qvr.appspot.com/API/Message");
                 $api_url->query_form( 'apiToken'  => $api_token,
                                       'message'   => uri_escape($lastMsg),
                                       'channel'   => uri_escape($lastTarget),
@@ -266,7 +266,7 @@ sub send_to_api {
 
             } elsif ($type eq 'cmd') {
                 $command = encrypt($command);
-                $api_url = URI->new("https://irssinotifier.appspot.com/API/Command");
+                $api_url = URI->new("https://irssinotifier-qvr.appspot.com/API/Command");
                 $api_url->query_form( 'apiToken'  => $api_token,
                                       'command'   => $command );
             }
@@ -364,7 +364,7 @@ sub are_settings_valid {
 
     my $api_token = Irssi::settings_get_str('irssinotifier_api_token');
     if (!$api_token) {
-        Irssi::print("IrssiNotifier: Set API token to send notifications (check your token at https://irssinotifier.appspot.com): /set irssinotifier_api_token [token]");
+        Irssi::print("IrssiNotifier: Set API token to send notifications (check your token at https://irssinotifier-qvr.appspot.com): /set irssinotifier_api_token [token]");
         return 0;
     }
 
