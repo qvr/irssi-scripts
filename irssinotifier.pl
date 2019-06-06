@@ -29,6 +29,7 @@ my $lastNick;
 my $lastTarget;
 my $lastWindow;
 my $lastKeyboardActivity = time;
+my $lastSent = 0;
 my $forked;
 my $lastDcc = 0;
 my $notifications_sent = 0;
@@ -241,6 +242,7 @@ sub send_to_api {
         eval {
             my $api_token = Irssi::settings_get_str('irssinotifier_api_token');
             my $proxy     = Irssi::settings_get_str('irssinotifier_https_proxy');
+            my $mode      = Irssi::settings_get_str('irssinotifier_mode');
 
             if($proxy) {
                 $ENV{https_proxy} = $proxy;
@@ -253,30 +255,59 @@ sub send_to_api {
                 $lastMsg = Irssi::strip_codes($lastMsg);
 
                 encode_utf();
-                $lastMsg    = encrypt($lastMsg);
-                $lastNick   = encrypt($lastNick);
-                $lastTarget = encrypt($lastTarget);
+                if ($mode eq 'irssinotifier') {
+                    $lastMsg    = encrypt($lastMsg);
+                    $lastNick   = encrypt($lastNick);
+                    $lastTarget = encrypt($lastTarget);
 
-                $api_url = URI->new("https://irssinotifier-qvr.appspot.com/API/Message");
-                $api_url->query_form( 'apiToken'  => $api_token,
-                                      'message'   => uri_escape($lastMsg),
-                                      'channel'   => uri_escape($lastTarget),
-                                      'nick'      => uri_escape($lastNick),
-                                      'version'   => $VERSION );
+                    $api_url = URI->new("https://irssinotifier-qvr.appspot.com/API/Message");
+                    $api_url->query_form( 'apiToken'  => $api_token,
+                                          'message'   => uri_escape($lastMsg),
+                                          'channel'   => uri_escape($lastTarget),
+                                          'nick'      => uri_escape($lastNick),
+                                          'version'   => $VERSION );
+                } else {
+                    my $title = $lastTarget;
+                    my $message = $lastNick.': '.$lastMsg;
 
-            } elsif ($type eq 'cmd') {
+                    if ($title eq '!PRIVATE') {
+                        $title = $lastNick;
+                        $message = $lastMsg;
+                    }
+
+                    my $priority = 0;
+                    if ((time - $lastSent) <= Irssi::settings_get_int('irssinotifier_mute_window_seconds')) {
+                        $priority = -1;
+                    }
+
+                    $api_url = URI->new("https://api.pushover.net/1/messages.json");
+                    $api_url->query_form( 'token'     => Irssi::settings_get_str('irssinotifier_pushover_api_token'),
+                                          'user'      => Irssi::settings_get_str('irssinotifier_pushover_user_key'),
+                                          'message'   => $message,
+                                          'sound'     => Irssi::settings_get_str('irssinotifier_pushover_sound'),
+                                          'title'     => $title,
+                                          'priority'  => $priority,
+                                          'url'       => Irssi::settings_get_str('irssinotifier_pushover_url'),
+                                          'url_title' => Irssi::settings_get_str('irssinotifier_pushover_url_title') );
+                }
+
+            } elsif ($type eq 'cmd' && $mode eq 'irssinotifier') {
                 $command = encrypt($command);
                 $api_url = URI->new("https://irssinotifier-qvr.appspot.com/API/Command");
                 $api_url->query_form( 'apiToken'  => $api_token,
                                       'command'   => $command );
             }
 
-            my $response = $browser->post($api_url);
-            if (!$response->is_success) {
-                # Something went wrong, might be network error or authorization issue. Probably no need to alert user, though.
-                print $writeHandle "0 FAIL: " . $response->status_line . "\n";
+            if ($api_url) {
+                my $response = $browser->post($api_url);
+                if (!$response->is_success) {
+                    # Something went wrong, might be network error or authorization issue. Probably no need to alert user, though.
+                    print $writeHandle "0 FAIL: " . $response->status_line . "\n";
+                } else {
+                    print $writeHandle "1 OK\n";
+                }
             } else {
-                print $writeHandle "1 OK\n";
+                print $writeHandle "1 NOOP: unsupported type for mode\n";
             }
         }; # end eval
 
@@ -328,6 +359,8 @@ sub read_pipe {
     if (Irssi::settings_get_bool('irssinotifier_clear_notifications_when_viewed') && $target->{type} eq 'notification') {
         $notifications_sent++;
     }
+
+    $lastSent = time if ($target->{type} eq 'notification');
 
     check_delayQueue();
 }
@@ -419,13 +452,14 @@ sub event_key_pressed {
 
 my $screen_ls = `LC_ALL="C" screen -ls`;
 if ($screen_ls !~ /^No Sockets found/s) {
-    $screen_ls =~ /^.+\d+ Sockets? in ([^\n]+)\.\n.+$/s;
+    $screen_ls =~ /^.*\d+ Sockets? in ([^\n]+)\..*$/s;
     $screen_socket_path = $1;
 } else {
     $screen_ls =~ /^No Sockets found in ([^\n]+)\.\n.+$/s;
     $screen_socket_path = $1;
 }
 
+Irssi::settings_add_str('irssinotifier', 'irssinotifier_mode', 'irssinotifier');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_encryption_password', 'password');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_api_token', '');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_https_proxy', '');
@@ -434,11 +468,17 @@ Irssi::settings_add_str('irssinotifier', 'irssinotifier_ignored_channels', '');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_ignored_nicks', '');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_ignored_highlight_patterns', '');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_required_public_highlight_patterns', '');
+Irssi::settings_add_str('irssinotifier', 'irssinotifier_pushover_api_token', '');
+Irssi::settings_add_str('irssinotifier', 'irssinotifier_pushover_user_key', '');
+Irssi::settings_add_str('irssinotifier', 'irssinotifier_pushover_sound', '');
+Irssi::settings_add_str('irssinotifier', 'irssinotifier_pushover_url', '');
+Irssi::settings_add_str('irssinotifier', 'irssinotifier_pushover_url_title', '');
 Irssi::settings_add_bool('irssinotifier', 'irssinotifier_ignore_active_window', 0);
 Irssi::settings_add_bool('irssinotifier', 'irssinotifier_away_only', 0);
 Irssi::settings_add_bool('irssinotifier', 'irssinotifier_screen_detached_only', 0);
 Irssi::settings_add_bool('irssinotifier', 'irssinotifier_clear_notifications_when_viewed', 0);
 Irssi::settings_add_int('irssinotifier', 'irssinotifier_require_idle_seconds', 0);
+Irssi::settings_add_int('irssinotifier', 'irssinotifier_mute_window_seconds', 60);
 Irssi::settings_add_bool('irssinotifier', 'irssinotifier_enable_dcc', 1);
 
 # these commands are renamed
