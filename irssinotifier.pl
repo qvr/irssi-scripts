@@ -6,21 +6,17 @@ use Encode;
 use LWP::UserAgent;
 use LWP::Protocol::https;
 use URI;
-use URI::Escape;
-use Crypt::CBC;
-use Crypt::Rijndael;
-use MIME::Base64;
 use vars qw($VERSION %IRSSI);
 
 $VERSION = "18";
 %IRSSI   = (
-    authors     => "Lauri \'murgo\' Härsilä",
-    contact     => "murgo\@iki.fi",
+    authors     => "Lauri 'murgo' Härsilä, Matti 'qvr' Hiljanen",
+    contact     => "matti\@hiljanen.com",
     name        => "IrssiNotifier",
-    description => "Send notifications about irssi highlights to server",
+    description => "Send notifications about irssi highlights to pushover",
     license     => "Apache License, version 2.0",
-    url         => "https://irssinotifier-qvr.appspot.com",
-    changed     => "2013-06-02"
+    url         => "https://github.com/qvr/irssi-scripts",
+    changed     => "2024-10-17"
 );
 
 my $lastMsg;
@@ -240,9 +236,7 @@ sub send_to_api {
     } else {
         close (STDIN); close (STDOUT); close (STDERR);
         eval {
-            my $api_token = Irssi::settings_get_str('irssinotifier_api_token');
             my $proxy     = Irssi::settings_get_str('irssinotifier_https_proxy');
-            my $mode      = Irssi::settings_get_str('irssinotifier_mode');
 
             if($proxy) {
                 $ENV{https_proxy} = $proxy;
@@ -255,47 +249,29 @@ sub send_to_api {
                 $lastMsg = Irssi::strip_codes($lastMsg);
 
                 encode_utf();
-                if ($mode eq 'irssinotifier') {
-                    $lastMsg    = encrypt($lastMsg);
-                    $lastNick   = encrypt($lastNick);
-                    $lastTarget = encrypt($lastTarget);
+                my $title = $lastTarget;
+                my $message = $lastNick.': '.$lastMsg;
 
-                    $api_url = URI->new("https://irssinotifier-qvr.appspot.com/API/Message");
-                    $api_url->query_form( 'apiToken'  => $api_token,
-                                          'message'   => uri_escape($lastMsg),
-                                          'channel'   => uri_escape($lastTarget),
-                                          'nick'      => uri_escape($lastNick),
-                                          'version'   => $VERSION );
-                } else {
-                    my $title = $lastTarget;
-                    my $message = $lastNick.': '.$lastMsg;
-
-                    if ($title eq '!PRIVATE') {
-                        $title = $lastNick;
-                        $message = $lastMsg;
-                    }
-
-                    my $priority = 0;
-                    if ((time - $lastSent) <= Irssi::settings_get_int('irssinotifier_mute_window_seconds')) {
-                        $priority = -1;
-                    }
-
-                    $api_url = URI->new("https://api.pushover.net/1/messages.json");
-                    $api_url->query_form( 'token'     => Irssi::settings_get_str('irssinotifier_pushover_api_token'),
-                                          'user'      => Irssi::settings_get_str('irssinotifier_pushover_user_key'),
-                                          'message'   => $message,
-                                          'sound'     => Irssi::settings_get_str('irssinotifier_pushover_sound'),
-                                          'title'     => $title,
-                                          'priority'  => $priority,
-                                          'url'       => Irssi::settings_get_str('irssinotifier_pushover_url'),
-                                          'url_title' => Irssi::settings_get_str('irssinotifier_pushover_url_title') );
+                if ($title eq '!PRIVATE') {
+                    $title = $lastNick;
+                    $message = $lastMsg;
                 }
 
-            } elsif ($type eq 'cmd' && $mode eq 'irssinotifier') {
-                $command = encrypt($command);
-                $api_url = URI->new("https://irssinotifier-qvr.appspot.com/API/Command");
-                $api_url->query_form( 'apiToken'  => $api_token,
-                                      'command'   => $command );
+                my $priority = 0;
+                if ((time - $lastSent) <= Irssi::settings_get_int('irssinotifier_mute_window_seconds')) {
+                    $priority = -1;
+                }
+
+                $api_url = URI->new("https://api.pushover.net/1/messages.json");
+                $api_url->query_form( 'token'     => Irssi::settings_get_str('irssinotifier_pushover_api_token'),
+                                      'user'      => Irssi::settings_get_str('irssinotifier_pushover_user_key'),
+                                      'message'   => $message,
+                                      'sound'     => Irssi::settings_get_str('irssinotifier_pushover_sound'),
+                                      'title'     => $title,
+                                      'priority'  => $priority,
+                                      'url'       => Irssi::settings_get_str('irssinotifier_pushover_url'),
+                                      'url_title' => Irssi::settings_get_str('irssinotifier_pushover_url_title') );
+
             }
 
             if ($api_url) {
@@ -365,45 +341,19 @@ sub read_pipe {
     check_delayQueue();
 }
 
-sub encrypt {
-    my ($text) = @_ ? shift : $_;
-
-    my $cipher = Crypt::CBC->new( {
-        'key'         => Irssi::settings_get_str('irssinotifier_encryption_password'),
-        'header'      => 'salt',
-        'cipher'      => 'Rijndael',
-        'salt'        => 1,
-        'keysize'     => 128 / 8,
-      }
-    );
-
-    my $result = encode_base64($cipher->encrypt("$text "), "");
-
-    $result =~ tr[+/][-_];
-    $result =~ s/=//g;
-    return $result;
-}
-
 sub are_settings_valid {
     Irssi::signal_remove( 'gui key pressed', 'event_key_pressed' );
     if (Irssi::settings_get_int('irssinotifier_require_idle_seconds') > 0) {
         Irssi::signal_add( 'gui key pressed', 'event_key_pressed' );
     }
 
-    if (!Irssi::settings_get_str('irssinotifier_api_token')) {
-        Irssi::print("IrssiNotifier: Set API token to send notifications: /set irssinotifier_api_token [token]");
+    if (!Irssi::settings_get_str('irssinotifier_pushover_api_token')) {
+        Irssi::print("IrssiNotifier: Set pushover API token to send notifications: /set irssinotifier_pushover_api_token [token]");
         return 0;
     }
 
-    my $api_token = Irssi::settings_get_str('irssinotifier_api_token');
-    if (!$api_token) {
-        Irssi::print("IrssiNotifier: Set API token to send notifications (check your token at https://irssinotifier-qvr.appspot.com): /set irssinotifier_api_token [token]");
-        return 0;
-    }
-
-    my $encryption_password  = Irssi::settings_get_str('irssinotifier_encryption_password');
-    if (!$encryption_password) {
-        Irssi::print("IrssiNotifier: Set encryption password to send notifications (must be same as in the Android device): /set irssinotifier_encryption_password [password]");
+    if (!Irssi::settings_get_str('irssinotifier_pushover_user_key')) {
+        Irssi::print("IrssiNotifier: Set pushover user key to send notifications: /set irssinotifier_pushover_user_key [key]");
         return 0;
     }
 
@@ -459,9 +409,6 @@ if ($screen_ls !~ /^No Sockets found/s) {
     $screen_socket_path = $1;
 }
 
-Irssi::settings_add_str('irssinotifier', 'irssinotifier_mode', 'irssinotifier');
-Irssi::settings_add_str('irssinotifier', 'irssinotifier_encryption_password', 'password');
-Irssi::settings_add_str('irssinotifier', 'irssinotifier_api_token', '');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_https_proxy', '');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_ignored_servers', '');
 Irssi::settings_add_str('irssinotifier', 'irssinotifier_ignored_channels', '');
@@ -481,9 +428,12 @@ Irssi::settings_add_int('irssinotifier', 'irssinotifier_require_idle_seconds', 0
 Irssi::settings_add_int('irssinotifier', 'irssinotifier_mute_window_seconds', 60);
 Irssi::settings_add_bool('irssinotifier', 'irssinotifier_enable_dcc', 1);
 
-# these commands are renamed
+# these settings have been renamed or removed
 Irssi::settings_remove('irssinotifier_ignore_server');
 Irssi::settings_remove('irssinotifier_ignore_channel');
+Irssi::settings_remove('irssinotifier_mode');
+Irssi::settings_remove('irssinotifier_encryption_password');
+Irssi::settings_remove('irssinotifier_api_token');
 
 Irssi::signal_add('message irc action', 'public');
 Irssi::signal_add('message public',     'public');
