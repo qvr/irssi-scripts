@@ -23,7 +23,7 @@ $attached = -1;
 my $screen_ls = `LC_ALL="C" screen -ls`;
 
 if ($screen_ls !~ /^No Sockets found/s) {
-    $screen_ls =~ /^.+\d+ Sockets? in ([^\n]+)\.\n.+$/s;
+    $screen_ls =~ /^.*\d+ Sockets? in ([^\n]+)\..*$/s;
     $screen_socket_path = $1;
 } else {
     $screen_ls =~ /^No Sockets found in ([^\n]+)\.\n.+$/s;
